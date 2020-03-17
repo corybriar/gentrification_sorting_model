@@ -26,9 +26,10 @@ para = parameters()
 ρ = [2 3 4 5]
 ψ = [1.5, 1.5]
 θ = [0.3, 0.4, 0.5, 0.6]
-κ = 0.3
+κ = [0.3, 0.3, 0.3, 0.3]
 JS = [15,15,15,15]
 n = 10 .*ones(2,4,2)
+B = [1, 1]
 
 nloc = [15 15]
 # create imaginary space to work with
@@ -61,7 +62,7 @@ function γ_gen(para, space, nloc, cost)
             for l2 in 1:nloc[m]
                 comcost_l[l1,l2] = cost * norm(
                 [space[m][l1,1], space[m][l1,2]]
-                - [space[m][l2,1], space[m][l2,2]])
+                - [space[m][l2,1], space[m][l2,2]]) .+ 1
             end # l2 loop
         end # l1 loop
         push!(com_costs,comcost_l)
@@ -130,15 +131,15 @@ function wages_guess(para,nloc)
 end
 
 wages = wages_guess(para,nloc)
-
+# Construct Pl
+Pl = Pℓ(para, γ, firms, prices, nloc)
 
 function household_sort(para, space, firms, prices, rents, wages, γ, n, εh, εw, nloc)
     @unpack αU, αS, ζ, η, τ, T, IU, IS, M, S, σw, σh = para
     E = [1, 2]
     I = [IU, IS]
     α = [αU, αS]
-    # Construct Pl
-    Pl = Pℓ(para, γ, firms, prices, nloc)
+
     # Blank array to hold max for each city
     maxm = zeros(IU + IS, 4, M)
     # Blank matrix to hold π^e_s(ℓ'|ℓ)
@@ -159,7 +160,7 @@ function household_sort(para, space, firms, prices, rents, wages, γ, n, εh, ε
             Vesm[1,:,e,s] = transpose((1/σh).*(diag(πm .* transpose(VW)) .-
                 α[e].*log.(rents[m]) .- (1-α[e]).*log.(Pl[m])))
             # Back out incomes for those in ℓ ∈ Lm
-            Vesm[2,:,e,s] = transpose(πm)*wages[m][:,e,s]
+            Vesm[2,:,e,s] = transpose(πm)*wages[m][:,e,s].*n[e,s,m]
             # sum up utilies across locations
             sumVesm[e,s] = sum(exp.(Vesm[1,:,e,s]))
         end # e-s loop
@@ -182,17 +183,51 @@ function household_sort(para, space, firms, prices, rents, wages, γ, n, εh, ε
         push!(HX, HXm)
     end # m loop
 
-    return V, HX
+    return V, pop, HX
 end
 
-VH, HX = household_sort(para, space, firms, prices, rents, wages, γ, n, εh, εw, nloc)
+VH, pop, HX = household_sort(para, space, firms, prices, rents, wages, γ, n, εh, εw, nloc)
 
 
-function firm_sort(para,space, HX, JS, prices, rents, wages, ρ, θ, n, ϵ, nloc)
-    @unpack αU, αS, ζ, η, τ, M, S, σw, σh = para
-    
-
+function firm_sort(para,space, VH, JS, Pl, rents, wages, ρ, θ, n, ϵ, nloc)
+    @unpack αU, αS, ζ, η, τ, M, S, σϵ = para
+    α = [αU, αS]
+    VF =[]
+    Hl = []
+    sumVF = []
+    for m in 1:M
+        VFsm = zeros(nloc[m],S)
+        Hlmes = zeros(nloc[m],2, S)
+        # Compute demand potential for each ℓ,e,s triple
+        for s in 1:S
+            for e in 1:2
+                Hlmes[:,e,s] = (1 - α[e]).*(τ.*γ[m])^ζ * (pop[m][:,e,s].*V[m][2,:,e,s]  .* Pl[m].^(-(1 + ζ)))
+            end # e loop
+        end # s loop
+        # sum across columns of Hlmes to obtain H(ℓ)
+        push!(Hl,sum(Hlmes, dims = (2,3))[:,1,1])
+        for s in 1:S
+            # assmeble unit cost function
+            cl = (θ[s]^ρ[s].*wages[m][:,2,s].^(1-ρ[s]) + (1-θ[s])^ρ[s].*wages[m][:,1,s].^(1-ρ[s])).^(1/(1 - ρ[s]))
+            VFsm[:,s] = (1/σϵ) .* (-(1/(1 + ζ)).*log.(Hl[m]) - κ[s].*rents[m] - (1-κ[s]).*log.(cl))
+        end # s loop
+        push!(VF,VFsm)
+        push!(sumVF,sum(exp.(VFsm), dims = 1))
+    end # m loop
+    VFdenom = sum(sumVF)
+    # Loop by city-sector to find sorting probabilities
+    firms =[]
+    for m in 1:M
+        firmsm = zeros(nloc[m],S)
+        for s in 1:S
+            firmsm[:,s] = JS[s] .* exp.(VF[m][:,s]) ./ (VFdenom[s])
+        end
+        push!(firms,firmsm)
+    end # m-s loop
+    return firms
 end
+
+firms = firm_sort(para,space, VH, JS, Pl, rents, wages, ρ, θ, n, ϵ, nloc)
 
 
 """
