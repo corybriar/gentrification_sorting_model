@@ -33,7 +33,7 @@ B = [1, 1]
 
 nloc = [15 15]
 # create imaginary space to work with
-function space_gen(para,nloc, sizemax)
+"""function space_gen(para,nloc, sizemax)
     @unpack M = para
     space = []
     space_dist = Uniform(0,sizemax)
@@ -44,7 +44,7 @@ function space_gen(para,nloc, sizemax)
     return space
 end
 
-space = space_gen(para,nloc,1)
+space = space_gen(para,nloc,1)"""
 
 space =[]
 push!(space, [0 0; 0 1])
@@ -83,14 +83,18 @@ end
 
 rents = rents_guess(para, nloc)
 
-function prices_guess(JS)
-    prices = ones(sum(JS))
+function prices_guess(para, nloc)
+    @unpack M, S = para
+    prices = []
+    for m in 1:M
+        push!(prices,ones(nloc[m],S))
+    end # m loop
     return prices
 end
 
-prices = prices_guess(JS)
+prices = prices_guess(para, nloc)
 
-function shock_gen(para, nloc, JS)
+"""function shock_gen(para, nloc, JS)
      @unpack σh, σw, σϵ, M, IU, IS = para
      ϵ = []
      εh = []
@@ -107,19 +111,23 @@ function shock_gen(para, nloc, JS)
      return ϵ, εh, εw
 end
 
-ϵ, εh, εw = shock_gen(para, nloc,JS)
+ϵ, εh, εw = shock_gen(para, nloc,JS)"""
 
 
 function Pℓ(para, γ, firms, prices, nloc)
     @unpack τ, M, S, ζ = para
     P_l = []
     for m in 1:M
-        Jm = firms[firms[:,2] .== m, :]
-        Pml = ((τ.*γ[m][1:nloc[m],Jm[:,2]].+1).^(1+ζ) * (prices[Jm[:,1]]).^(1+ζ)).^(1/(1+ζ))
-        push!(P_l, Pml)
+        P_lm =[]
+        for s in 1:S
+            Plms = (γ[m]).^ζ * (firms[m][:,s] .* (τ.*prices[m][:,s]).^(1+ζ))
+            push!(P_lm, Plms)
+        end # s loop
+        push!(P_l, sum(P_lm))
     end # m loop
     return P_l
 end
+Pl = Pℓ(para, γ, firms, prices, nloc)
 
 function wages_guess(para,nloc)
     @unpack S, M = para
@@ -134,7 +142,7 @@ wages = wages_guess(para,nloc)
 # Construct Pl
 Pl = Pℓ(para, γ, firms, prices, nloc)
 
-function household_sort(para, space, firms, prices, rents, wages, γ, n, εh, εw, nloc)
+function household_sort(para, space, firms, prices, rents, wages, γ, n, nloc)
     @unpack αU, αS, ζ, η, τ, T, IU, IS, M, S, σw, σh = para
     E = [1, 2]
     I = [IU, IS]
@@ -186,22 +194,30 @@ function household_sort(para, space, firms, prices, rents, wages, γ, n, εh, ε
     return V, pop, HX
 end
 
-VH, pop, HX = household_sort(para, space, firms, prices, rents, wages, γ, n, εh, εw, nloc)
+VH, pop, HX = household_sort(para, space, firms, prices, rents, wages, γ, n, nloc)
 
 
-function firm_sort(para,space, VH, JS, Pl, rents, wages, ρ, θ, n, ϵ, nloc)
+function firm_sort(para,space, VH, JS, Pl, rents, wages, ρ, θ, n, nloc)
     @unpack αU, αS, ζ, η, τ, M, S, σϵ = para
     α = [αU, αS]
     VF =[]
     Hl = []
     sumVF = []
+    factors =[]
+    # factors[m][1,ℓ,s] = U
+    # factors[m][2,ℓ,s] = S
+    # factors[m][3,ℓ,s] = K
+    prices = []
+    # prices[m] = [ℓ,s]
     for m in 1:M
         VFsm = zeros(nloc[m],S)
-        Hlmes = zeros(nloc[m],2, S)
+        Hlmes = zeros(nloc[m],2,S)
+        factorsm = zeros(3,nloc[m],S)
+        pricesm = zeros(nloc[m],S)
         # Compute demand potential for each ℓ,e,s triple
         for s in 1:S
             for e in 1:2
-                Hlmes[:,e,s] = (1 - α[e]).*(τ.*γ[m])^ζ * (pop[m][:,e,s].*V[m][2,:,e,s]  .* Pl[m].^(-(1 + ζ)))
+                Hlmes[:,e,s] = (1 - α[e]).*(τ.*γ[m])^ζ * (pop[m][:,e,s].*VH[m][2,:,e,s]  .* Pl[m].^(-(1 + ζ)))
             end # e loop
         end # s loop
         # sum across columns of Hlmes to obtain H(ℓ)
@@ -210,9 +226,21 @@ function firm_sort(para,space, VH, JS, Pl, rents, wages, ρ, θ, n, ϵ, nloc)
             # assmeble unit cost function
             cl = (θ[s]^ρ[s].*wages[m][:,2,s].^(1-ρ[s]) + (1-θ[s])^ρ[s].*wages[m][:,1,s].^(1-ρ[s])).^(1/(1 - ρ[s]))
             VFsm[:,s] = (1/σϵ) .* (-(1/(1 + ζ)).*log.(Hl[m]) - κ[s].*rents[m] - (1-κ[s]).*log.(cl))
+            # optimal output for firm in m of type s across ℓ
+            ysm = ((ζ/((1+ζ)B[m])).*(rents[m]./κ[s]).^κ[s] .* (cl./(1-κ[s])).^(1-κ[s])).^ζ.*Hl[m]
+            # Compute demand for U
+            factorsm[1,:,s] = ysm./B[m].*((1-θ[s])./wages[m][:,1,s]).^ρ[s].*(((1-κ[s])/κ[s]).*rents[m]).^κ[s].*cl.^(ρ[s]-κ[s])
+            # Compute demand for S
+            factorsm[2,:,s] = ysm./B[m].*(θ[s]./wages[m][:,2,s]).^ρ[s].*(((1-κ[s])/κ[s]).*rents[m]).^κ[s].*cl.^(ρ[s]-κ[s])
+            # Compute demand for K
+            factorsm[3,:,s] = ysm./B[m].*(((1-κ[s])/κ[s]).*rents[m]).^(-κ[s]).*cl.^(1-κ[s])
+            # store optimal prices
+            pricesm[:,s] = ysm.^(1/ζ).*Hl[m].^(-1/ζ)
         end # s loop
         push!(VF,VFsm)
         push!(sumVF,sum(exp.(VFsm), dims = 1))
+        push!(factors, factorsm)
+        push!(prices,pricesm)
     end # m loop
     VFdenom = sum(sumVF)
     # Loop by city-sector to find sorting probabilities
@@ -224,10 +252,11 @@ function firm_sort(para,space, VH, JS, Pl, rents, wages, ρ, θ, n, ϵ, nloc)
         end
         push!(firms,firmsm)
     end # m-s loop
-    return firms
+
+    return firms, factors, prices
 end
 
-firms = firm_sort(para,space, VH, JS, Pl, rents, wages, ρ, θ, n, ϵ, nloc)
+firms, factor, prices = firm_sort(para,space, VH, JS, Pl, rents, wages, ρ, θ, n, nloc)
 
 
 """
@@ -242,18 +271,11 @@ wages: w[m][ℓ,e,s]
 
 function fake_firm(para,nloc, JS)
     @unpack S, M = para
-    J = sum(JS)
-    city = Int.(rand(1:M, J))
-    loc = Int.(zeros(J))
+    fake_firms = []
     for m in 1:M
-        for j in 1:J
-            if city[j] == m
-                loc[j] = rand(1:nloc[m], 1)[1]
-            end
-        end # j loop
+        firmm = repeat(transpose([1/sum(nloc)].*JS),nloc[m])
+        push!(fake_firms,firmm)
     end # m loop
-    sec = Int.(rand(1:S, J))
-    fake_firms = [city loc sec]
     return fake_firms
 end
 
