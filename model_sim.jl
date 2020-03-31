@@ -81,7 +81,7 @@ function rents_guess(para, nloc)
     return costs
 end
 
-rents = rents_guess(para, nloc)
+rents_0 = rents_guess(para, nloc)
 
 function prices_guess(para, nloc)
     @unpack M, S = para
@@ -92,7 +92,7 @@ function prices_guess(para, nloc)
     return prices
 end
 
-prices = prices_guess(para, nloc)
+prices_0 = prices_guess(para, nloc)
 
 """function shock_gen(para, nloc, JS)
      @unpack σh, σw, σϵ, M, IU, IS = para
@@ -138,16 +138,17 @@ function wages_guess(para,nloc)
     return w
 end
 
-wages = wages_guess(para,nloc)
-# Construct Pl
-Pl = Pℓ(para, γ, firms, prices, nloc)
+wage_0 = wages_guess(para,nloc)
+
+
 
 function household_sort(para, space, firms, prices, rents, wages, γ, n, nloc)
     @unpack αU, αS, ζ, η, τ, T, IU, IS, M, S, σw, σh = para
     E = [1, 2]
     I = [IU, IS]
     α = [αU, αS]
-
+    # Construct P(ℓ)
+    Pl = Pℓ(para, γ, firms, prices, nloc)
     # Blank array to hold max for each city
     maxm = zeros(IU + IS, 4, M)
     # Blank matrix to hold π^e_s(ℓ'|ℓ)
@@ -182,10 +183,13 @@ function household_sort(para, space, firms, prices, rents, wages, γ, n, nloc)
     for m in 1:M
         popm = zeros(nloc[m],2,S)
         HXm = zeros(2,nloc[m], 2, S)
+        # HX[m][1,ℓ,e,s] = H
+        # HX[m][2,ℓ,e,s] = X
         for e in 1:2, s in 1:S
             popm[:,e,s] = I[e] .* exp.(V[m][1,:,e,s]) .* (sum(Vdenom[e,:])).^(-1)
-            HXm[1,:,e,s] = I[e]*α[e] .* popm[:,e,s] .* V[m][2,:,e,s] ./ rents[m][:]
-            HXm[2,:,e,s] = I[e]*(1-α[e]) .* popm[:,e,s] .* V[m][2,:,e,s] ./ Pl[m][:]
+            #
+            HXm[1,:,e,s] = α[e] .* popm[:,e,s] .* V[m][2,:,e,s] ./ rents[m][:]
+            HXm[2,:,e,s] = (1-α[e]) .* popm[:,e,s] .* V[m][2,:,e,s] ./ Pl[m][:]
         end # e loop
         push!(pop, popm)
         push!(HX, HXm)
@@ -258,6 +262,38 @@ end
 
 firms, factor, prices = firm_sort(para,space, VH, JS, Pl, rents, wages, ρ, θ, n, nloc)
 
+function form_rents(para, HX, factor, nloc, ψ)
+    @unpack M, S = para
+    rents = []
+    for m in 1:M
+        # Sum across household land demands by e and s, firm land by s
+        rentm = (sum(HX[m][1,:,:,:], dims = (2,3))[:,:,1] .+ sum(factor[m][3,:,:], dims = 2)).^ψ[m]
+        push!(rents,rentm)
+    end # m loop
+    return rents
+end
+
+rents = form_rents(para, HX, factor, nloc, ψ)
+
+function wages_form(para, JS, wages_old, firms, factor, n, γ, nloc)
+    @unpack T, ζ, η, M, S, σw = para
+    wages_new = []
+    for m in 1:M
+        wagesS = zeros(nloc[m],2,S)
+        for s in 1:S, e in 1:2
+            VW = (1/σw) .* (
+                log(n[e,s,m]) .+ log.(wages_old[m][:,e,s]')
+                .+ η.*log.(T .- n[e,s,m] .- γ[m])
+                )
+            ugly_int = sum(exp.((1/σw) .*(log(n[e,s,m]).+ η.*log.(T .- n[e,s,m] .- γ[m]))) .* ((ones(1,nloc[m])*(exp.(VW))').^(-1)), dims = 2)
+            wagesS[:,e,s] = firms[m][:,s] .* (factor[m][e,:,s] .* n[e,s,m] .* ugly_int.^(-1)).^σw
+        end # s-e loop
+        push!(wages_new, wagesS)
+    end # m loop
+    return wages_new
+end
+
+wages_new = wages_form(para, JS, wages, firms, factor, n, γ, nloc)
 
 """
 MATRICES
@@ -279,4 +315,4 @@ function fake_firm(para,nloc, JS)
     return fake_firms
 end
 
-firms = fake_firm(para, nloc, JS)
+firms_0 = fake_firm(para, nloc, JS)
