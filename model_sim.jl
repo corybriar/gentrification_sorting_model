@@ -273,9 +273,9 @@ function form_rents(para, HX, factor, nloc, ψ)
     return rents
 end
 
-rents = form_rents(para, HX, factor, nloc, ψ)
+rents_new = form_rents(para, HX, factor, nloc, ψ)
 
-function wages_form(para, JS, wages_old, firms, factor, n, γ, nloc)
+function form_wages(para, JS, wages_old, firms, factor, n, γ, nloc)
     @unpack T, ζ, η, M, S, σw = para
     wages_new = []
     for m in 1:M
@@ -293,7 +293,7 @@ function wages_form(para, JS, wages_old, firms, factor, n, γ, nloc)
     return wages_new
 end
 
-wages_new = wages_form(para, JS, wages, firms, factor, n, γ, nloc)
+wages_new = form_wages(para, JS, wages, firms, factor, n, γ, nloc)
 
 """
 MATRICES
@@ -316,3 +316,170 @@ function fake_firm(para,nloc, JS)
 end
 
 firms_0 = fake_firm(para, nloc, JS)
+
+ρ = [2 3 4 5]
+ψ = [1.5, 1.5]
+θ = [0.3, 0.4, 0.5, 0.6]
+κ = [0.3, 0.3, 0.3, 0.3]
+JS = [15,15,15,15]
+n = 10 .*ones(2,4,2)
+B = [1, 1]
+
+nloc = [15 15]
+
+weights = [0.4, 0.3, 0.2, 0.1]
+inner_max = 200
+outer_max = 200
+inner_tol = 0.1
+outer_tol = 0.1
+
+function eq(para, ρ, ψ, θ, κ, JS, n, B, nloc, inner_max, outer_max, inner_tol, outer_tol, weights)
+    # initialize distribution of firms, wages, rents, prices
+    wages = wages_guess(para, nloc)
+    prices = prices_guess(para, nloc)
+    rents = rents_guess(para, nloc)
+    firms = fake_firm(para, nloc, JS)
+
+    # initialize while loop
+    iter = 0
+    CONT = true
+    wages_store = []
+    #prices_store = []
+    rents_store = []
+
+    # begin price equilibrium while loop
+    while (iter < outer_max) & (CONT == true)
+        iter += 1
+
+        # initialize inner loop
+        inner_it = 0
+        inner_CONT = true
+        hh_store = []
+        firms_store = []
+        # inner while loop to generate sorting equilibrium
+        while (inner_it < inner_max) &
+            inner_it += 1
+            Pl = Pℓ(para, γ, firms, prices, nloc)
+            # obtain household locations
+            VH_new, pop, HX = household_sort(para, space, firms, prices, rents, wages, γ, n, nloc)
+            # given hh sort, obtain firm sort
+            firms_new, factor, prices = firm_sort(para,space, VH, JS, Pl, rents, wages, ρ, θ, n, nloc)
+            # iteration check
+            if inner_it == 1
+                # inner loop convergence check
+                if (max(firms_new - firms) < inner_tol) & (max(VH_new[:][1,:,:,:] - VH[:][1,:,:,:]) < inner_tol)
+                    firms = firms_new
+                    VH = VH_new
+                    inner_CONT = false
+                    println("Sorting equilibrium obtained after $inner_it iterations")
+                else
+                    println("$inner_it, HH difference = "max(firms_new - firms)" , firms difference = "max(VH_new[:][1,:,:,:] - VH[:][1,:,:,:]))
+                    firms = firms_new
+                    VH = VH_new
+                    push!(hh_store, VH)
+                    push!(firms_store, firms)
+                end
+            elseif inner_it == 2
+                # inner loop convergence check
+                if (max(firms_new - firms) < inner_tol) & (max(VH_new[:][1,:,:,:] - VH[:][1,:,:,:]) < inner_tol)
+                    firms = firms_new
+                    VH = VH_new
+                    inner_CONT = false
+                    println("Sorting equilibrium obtained after $inner_it iterations")
+                else
+                    println("$inner_it, HH difference = "max(firms_new - firms)" , firms difference = "max(VH_new[:][1,:,:,:] - VH[:][1,:,:,:]))
+                    firms = 0.5 .* (firms_new + firms)
+                    VH = 0.5 .* (VH_new + VH)
+                    push!(hh_store, VH)
+                    push!(firms_store, firms)
+                end
+            elseif inner_it == 3
+                # inner loop convergence check
+                if (max(firms_new - firms) < inner_tol) & (max(VH_new[:][1,:,:,:] - VH[:][1,:,:,:]) < inner_tol)
+                    firms = firms_new
+                    VH = VH_new
+                    inner_CONT = false
+                    println("Sorting equilibrium obtained after $inner_it iterations")
+                else
+                    println("$inner_it, HH difference = "max(firms_new - firms)" , firms difference = "max(VH_new[:][1,:,:,:] - VH[:][1,:,:,:]))
+                    firms = (1/3) .* (firms_new + firms + firms_store[inner_it - 2])
+                    VH = (1/3) .* (VH_new + VH + hh_store[inner_it - 2])
+                    push!(hh_store, VH)
+                    push!(firms_store, firms)
+                end
+            else
+                # inner loop convergence check
+                if (max(firms_new - firms) < inner_tol) & (max(VH_new[:][1,:,:,:] - VH[:][1,:,:,:]) < inner_tol)
+                    firms = firms_new
+                    VH = VH_new
+                    inner_CONT = false
+                    println("Sorting equilibrium obtained after $inner_it iterations")
+                else
+                    println("$inner_it, HH difference = "max(firms_new - firms)" , firms difference = "max(VH_new[:][1,:,:,:] - VH[:][1,:,:,:]))
+                    firms = weights[1].*firms_new + weights[2].*firms + weights[3].*firms_store[inner_it - 2] + weights[4].* firms_store[inner_it - 3]
+                    VH = weights[1].*VH_new + weights[2].*VH + weights[3].*hh_store[inner_it - 2] + weights[4].*hh_store[inner_it - 3]
+                    push!(hh_store, VH)
+                    push!(firms_store, firms)
+                end
+            end # iteration check
+        end # sorting loop
+        # form wages and rents based on sorting
+        wages_new = form_wages(para, JS, wages, firms, factor, n, γ, nloc)
+        rents_new = form_rents(para, HX, factor, nloc, ψ)
+        # check for convergence
+        if iter == 1
+            if (max(wages_new - wages) < outer_tol) & (max(rents_new - rents) < outer tol)
+                wages = wages_new
+                rents = rents_new
+                CONT = false
+                println("Wage-rent equilibrium obtained after $iter iterations")
+            else
+                println("$iter Wage difference = "max(wages_new - wages)", Rent difference = "max(rents_new - rents))
+                wages = wages_new
+                rents = rents_new
+                push!(wages_store,wages)
+                push!(rents_store, rents)
+            end
+        elseif iter == 2
+            if (max(wages_new - wages) < outer_tol) & (max(rents_new - rents) < outer tol)
+                wages = wages_new
+                rents = rents_new
+                CONT = false
+                println("Wage-rent equilibrium obtained after $iter iterations")
+            else
+                println("$iter Wage difference = "max(wages_new - wages)", Rent difference = "max(rents_new - rents))
+                wages = 0.5.*(wages_new + wages)
+                rents = 0.5.*(rents_new + rents)
+                push!(wages_store,wages)
+                push!(rents_store, rents)
+            end
+        elseif iter == 3
+            if (max(wages_new - wages) < outer_tol) & (max(rents_new - rents) < outer tol)
+                wages = wages_new
+                rents = rents_new
+                CONT = false
+                println("Wage-rent equilibrium obtained after $iter iterations")
+            else
+                println("$iter Wage difference = "max(wages_new - wages)", Rent difference = "max(rents_new - rents))
+                wages = (wages_new + wages + wages_store[1])./3
+                rents = (rents_new + rents + rents_store[1])./3
+                push!(wages_store,wages)
+                push!(rents_store, rents)
+            end
+        else
+            if (max(wages_new - wages) < outer_tol) & (max(rents_new - rents) < outer tol)
+                wages = wages_new
+                rents = rents_new
+                CONT = false
+                println("Wage-rent equilibrium obtained after $iter iterations")
+            else
+                println("$iter Wage difference = "max(wages_new - wages)", Rent difference = "max(rents_new - rents))
+                wages = weights[1].*wages_new + weights[2].*wages + weights[3].*wages_store[iter - 2] + weights[4].*wages_store[iter - 3]
+                rents = weights[1].*rents_new + weights[2].*rents + weights[3].*rents_store[iter - 2] + weights.*rents_store[iter - 3]
+                push!(wages_store,wages)
+                push!(rents_store, rents)
+            end
+        end # iteration check
+    end # price loop
+    return VH, pop, HX, firms_new, factor, prices, wages, rents
+end
