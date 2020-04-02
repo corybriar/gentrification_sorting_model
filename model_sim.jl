@@ -6,7 +6,7 @@ using Parameters
 
 @with_kw struct parameters
     αU::Float64 = 0.5   # Utility parameter
-    αS::Float64 = 0.6
+    αS::Float64 = 0.5
     ζ::Float64 = -2     # Elasticity of substitution between goods
     η::Float64 = 1.5    # Elast. of utility to work/commute
     τ::Float64 = 1.3    # Travel cost parameter
@@ -42,8 +42,6 @@ function γ_gen(para, space, nloc, cost)
     end # m loop
     return com_costs
 end
-
-γ = γ_gen(para,space,nloc,1)
 
 function rents_guess(para, nloc)
     @unpack M = para
@@ -276,30 +274,25 @@ push!(space, [0 0; 0 1])
 push!(space, [0 0; 0 1])
 nloc = [2, 2]
 
-ρ = [2 3 4 5]
-ψ = [0.5, 0.5]
-θ = [0.3, 0.4, 0.5, 0.6]
-κ = [0.3, 0.3, 0.3, 0.3]
-JS = [15,15,15,15]
-n = 10 .*ones(2,4,2)
-B = [1, 1]
-
-
-weights = [0.4, 0.3, 0.2, 0.1]
-inner_max = 200
-outer_max = 62
-inner_tol = 0.1
-outer_tol = 0.1
-
-function eq(para, ρ, ψ, θ, κ, JS, n, B, nloc, inner_max, outer_max, inner_tol, outer_tol, weights)
+function eq(para, ρ, ψ, θ, κ, JS, n, B, nloc, inner_max, outer_max, inner_tol, outer_tol, weights, wage_0, price_0, rents_0, firms_0)
     @unpack M = para
-    # initialize distribution of firms, wages, rents, prices
-    wages = wages_guess(para, nloc)
-    prices = prices_guess(para, nloc)
-    rents = rents_guess(para, nloc)
-    firms = fake_firm(para, nloc, JS)
+    # initialize equilibrium objects
+    wages = wage_0
+    prices = price_0
+    rents = rent_0
+    firms = firm_0
     γ = γ_gen(para,space,nloc,1)
     VH, pop, HX = household_sort(para, space, firms, prices, rents, wages, γ, n, nloc)
+
+    # declare output vars
+    VH_final = []
+    pop_final = []
+    HX_final = []
+    firms_final = []
+    factor_final = []
+    prices_final = []
+    wages_final = []
+    rents_final = []
     # initialize while loop
     iter = 0
     CONT = true
@@ -338,8 +331,12 @@ function eq(para, ρ, ψ, θ, κ, JS, n, B, nloc, inner_max, outer_max, inner_to
             if inner_it == 1
                 # inner loop convergence check
                 if (diff_f < inner_tol) & (diff_h < inner_tol)
-                    firms = firms_new
-                    VH = VH_new
+                    firms_final = firms_new
+                    factor_final = factor
+                    prices_final = prices
+                    VH_final = VH_new
+                    pop_final = pop
+                    HX_final = HX
                     inner_CONT = false
                     println("Sorting equilibrium obtained after $inner_it iterations")
                 else
@@ -352,8 +349,12 @@ function eq(para, ρ, ψ, θ, κ, JS, n, B, nloc, inner_max, outer_max, inner_to
             elseif inner_it == 2
                 # inner loop convergence check
                 if (diff_f < inner_tol) & (diff_h < inner_tol)
-                    firms = firms_new
-                    VH = VH_new
+                    firms_final = firms_new
+                    factor_final = factor
+                    prices_final = prices
+                    VH_final = VH_new
+                    pop_final = pop
+                    HX_final = HX
                     inner_CONT = false
                     println("Sorting equilibrium obtained after $inner_it iterations")
                 else
@@ -366,8 +367,12 @@ function eq(para, ρ, ψ, θ, κ, JS, n, B, nloc, inner_max, outer_max, inner_to
             elseif inner_it == 3
                 # inner loop convergence check
                 if (diff_f < inner_tol) & (diff_h < inner_tol)
-                    firms = firms_new
-                    VH = VH_new
+                    firms_final = firms_new
+                    factor_final = factor
+                    prices_final = prices
+                    VH_final = VH_new
+                    pop_final = pop
+                    HX_final = HX
                     inner_CONT = false
                     println("Sorting equilibrium obtained after $inner_it iterations")
                 else
@@ -380,8 +385,12 @@ function eq(para, ρ, ψ, θ, κ, JS, n, B, nloc, inner_max, outer_max, inner_to
             else
                 # inner loop convergence check
                 if (diff_f < inner_tol) & (diff_h < inner_tol)
-                    firms = firms_new
-                    VH = VH_new
+                    firms_final = firms_new
+                    factor_final = factor
+                    prices_final = prices
+                    VH_final = VH_new
+                    pop_final = pop
+                    HX_final = HX
                     inner_CONT = false
                     println("Sorting equilibrium obtained after $inner_it iterations")
                 else
@@ -394,8 +403,8 @@ function eq(para, ρ, ψ, θ, κ, JS, n, B, nloc, inner_max, outer_max, inner_to
             end # iteration check
         end # sorting loop
         # form wages and rents based on sorting
-        wages_new = form_wages(para, JS, wages, firms, factor, n, γ, nloc)
-        rents_new = form_rents(para, HX, factor, nloc, ψ)
+        wages_new = form_wages(para, JS, wages, firms_final, factor_final, n, γ, nloc)
+        rents_new = form_rents(para, HX, factor_final, nloc, ψ)
         # find largest distance between cities
         diff_wers = zeros(M)
         diff_rers = zeros(M)
@@ -408,8 +417,8 @@ function eq(para, ρ, ψ, θ, κ, JS, n, B, nloc, inner_max, outer_max, inner_to
         # check for convergence
         if iter == 1
             if (diff_w < outer_tol) & (diff_r < outer_tol)
-                wages = wages_new
-                rents = rents_new
+                wages_final = wages_new
+                rents_final = rents_new
                 CONT = false
                 println("Wage-rent equilibrium obtained after $iter iterations")
             else
@@ -421,8 +430,8 @@ function eq(para, ρ, ψ, θ, κ, JS, n, B, nloc, inner_max, outer_max, inner_to
             end
         elseif iter == 2
             if (diff_w < outer_tol) & (diff_r < outer_tol)
-                wages = wages_new
-                rents = rents_new
+                wages_final = wages_new
+                rents_final = rents_new
                 CONT = false
                 println("Wage-rent equilibrium obtained after $iter iterations")
             else
@@ -434,8 +443,8 @@ function eq(para, ρ, ψ, θ, κ, JS, n, B, nloc, inner_max, outer_max, inner_to
             end
         elseif iter == 3
             if (diff_w < outer_tol) & (diff_r < outer_tol)
-                wages = wages_new
-                rents = rents_new
+                wages_final = wages_new
+                rents_final = rents_new
                 CONT = false
                 println("Wage-rent equilibrium obtained after $iter iterations")
             else
@@ -447,8 +456,8 @@ function eq(para, ρ, ψ, θ, κ, JS, n, B, nloc, inner_max, outer_max, inner_to
             end
         else
             if (diff_w < outer_tol) & (diff_r < outer_tol)
-                wages = wages_new
-                rents = rents_new
+                wages_final = wages_new
+                rents_final = rents_new
                 CONT = false
                 println("Wage-rent equilibrium obtained after $iter iterations")
             else
@@ -460,7 +469,33 @@ function eq(para, ρ, ψ, θ, κ, JS, n, B, nloc, inner_max, outer_max, inner_to
             end
         end # iteration check
     end # price loop
-    return VH, pop, HX, firms, factor, prices, wages, rents
+    return VH_final, pop_final, HX_final, firms_final, factor_final, prices_final, wages_final, rents_final
 end
 
-VH, pop, HX, firms, factor, prices, wages, rents = eq(para, ρ, ψ, θ, κ, JS, n, B, nloc, inner_max, outer_max, inner_tol, outer_tol, weights)
+ρ = [2 2 2 2]
+ψ = [0.5, 0.5]
+θ = [0.5, 0.5, 0.5, 0.5]
+κ = [0.3, 0.3, 0.3, 0.3]
+JS = [3,3,3,3]
+n = 10 .*ones(2,4,2)
+B = [1, 1]
+
+
+weights = [0.4, 0.3, 0.2, 0.1]
+inner_max = 200
+outer_max = 62
+inner_tol = 0.1
+outer_tol = 0.1
+
+space =[]
+push!(space, [0 0; 0 1])
+push!(space, [0 0; 0 1])
+nloc = [2, 2]
+
+# initialize distribution of firms, wages, rents, prices
+wage_0 = wages_guess(para, nloc)
+price_0 = prices_guess(para, nloc)
+rent_0 = rents_guess(para, nloc)
+firm_0 = fake_firm(para, nloc, JS)
+
+VH_eq, pop_eq, HX_eq, firms_eq, factor_eq, prices_eq, wages_eq, rents_eq = eq(para, ρ, ψ, θ, κ, JS, n, B, nloc, inner_max, outer_max, inner_tol, outer_tol, weights, wage_0, price_0, rent_0, firm_0)
