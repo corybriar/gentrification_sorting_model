@@ -3,10 +3,14 @@ using LinearAlgebra
 using Plots
 using Distributions
 using Parameters
+using CSV
+using DataFrames, DataFramesMeta, DelimitedFiles
+
+cd("/Users/bigfoot13770/Documents/UO ECON PROGRAM/ADRIFT/gentrification_sorting_model/gentrification_sorting_model_R")
 
 @with_kw struct parameters
-    αU::Float64 = 0.5   # Utility parameter
-    αS::Float64 = 0.5
+    αU::Float64 = 0.337   # Utility parameter
+    αS::Float64 = 0.321
     ζ::Float64 = -2     # Elasticity of substitution between goods
     η::Float64 = 1.5    # Elast. of utility to work/commute
     τ::Float64 = 1      # Travel cost parameter
@@ -14,10 +18,10 @@ using Parameters
     IU::Int64 = 100     # Number of agents
     IS::Int64 = 100
     M::Int64 = 2        # Number of cities
-    S::Int64  = 4       # Number of sectors
-    σh::Float64 = 0.5   # sd of εh
-    σw ::Float64= 0.5
-    σϵ::Float64 = 0.5   # sd of ϵ
+    S::Int64  = 2       # Number of sectors
+    σh::Float64 = 1     # sd of εh
+    σw ::Float64= 1
+    σϵ::Float64 = 1     # sd of ϵ
 end
 
 para = parameters()
@@ -60,26 +64,6 @@ function prices_guess(para, nloc)
     return prices
 end
 
-"""function shock_gen(para, nloc, JS)
-     @unpack σh, σw, σϵ, M, IU, IS = para
-     ϵ = []
-     εh = []
-     εw = []
-     ϵdist = Gumbel(0,σϵ)
-     hdist = Gumbel(0,σh)
-     wdist = Gumbel(0,σw)
-     J = sum(JS)
-     for m in 1:M
-         push!(ϵ,rand(ϵdist,J,nloc[m]))
-         push!(εh,rand(hdist,IU + IS,nloc[m]))
-         push!(εw,rand(wdist,IS + IS,nloc[m]))
-     end # m loop
-     return ϵ, εh, εw
-end
-
-ϵ, εh, εw = shock_gen(para, nloc,JS)"""
-
-
 function Pℓ(para, γ, firms, prices, nloc)
     @unpack τ, M, S, ζ = para
     P_l = []
@@ -94,14 +78,11 @@ function Pℓ(para, γ, firms, prices, nloc)
     return P_l
 end
 
-Pℓ(para,γ,firms,prices,nloc)
-
-
 function wages_guess(para,nloc)
     @unpack S, M = para
     w = []
     for m in 1:M
-        push!(w,10 .*ones(nloc[m],2,S))
+        push!(w, 10 .*ones(nloc[m],2,S))
     end # m loop
     return w
 end
@@ -162,7 +143,7 @@ function household_sort(para, space, firms, prices, rents, wages, γ, n, nloc)
     return V, pop, HX
 end
 
-function firm_sort(para, space, VH, JS, Pl, pop, rents, wages, γ, ρ, θ, n, nloc)
+function firm_sort(para, space, B, VH, JS, Pl, pop, rents, wages, γ, ρ, θ, n, nloc)
     @unpack αU, αS, ζ, η, τ, M, S, σϵ = para
     α = [αU, αS]
     VF =[]
@@ -182,7 +163,7 @@ function firm_sort(para, space, VH, JS, Pl, pop, rents, wages, γ, ρ, θ, n, nl
         # Compute demand potential for each ℓ,e,s triple
         for s in 1:S
             for e in 1:2
-                Hlmes[:,e,s] = (1 - α[e]).*(τ.*γ[m]).^ζ * (pop[m][:,e,s].*VH[m][2,:,e,s]  .* Pl[m].^(-(1 + ζ)))
+                Hlmes[:,e,s] = (1 - α[e]).*(τ.*(γ[m].+1)).^ζ * (pop[m][:,e,s].*VH[m][2,:,e,s]  .* Pl[m].^(-(1 + ζ)))
             end # e loop
         end # s loop
         # sum across columns of Hlmes to obtain H(ℓ)
@@ -190,15 +171,15 @@ function firm_sort(para, space, VH, JS, Pl, pop, rents, wages, γ, ρ, θ, n, nl
         for s in 1:S
             # assmeble unit cost function
             cl = (θ[s]^ρ[s].*wages[m][:,2,s].^(1-ρ[s]) + (1-θ[s])^ρ[s].*wages[m][:,1,s].^(1-ρ[s])).^(1/(1 - ρ[s]))
-            VFsm[:,s] = (1/σϵ) .* (-(1/(1 + ζ)).*log.(Hl[m]) - κ[s].*rents[m] - (1-κ[s]).*log.(cl))
+            VFsm[:,s] = (1/σϵ) .* (log.(B[m]) .- (1/(1 + ζ)).*log.(Hl[m]) - κ[s].*rents[m] - (1-κ[s]).*log.(cl))
             # optimal output for firm in m of type s across ℓ
-            ysm = ((ζ/((1+ζ)*B[m])).*(rents[m]./κ[s]).^κ[s] .* (cl./(1-κ[s])).^(1-κ[s])).^ζ.*Hl[m]
+            ysm = ((ζ/((1+ζ).*B[m]))' .*(rents[m]./κ[s]).^κ[s] .* (cl./(1-κ[s])).^(1-κ[s])).^ζ.*Hl[m]
             # Compute demand for U
-            factorsm[1,:,s] = ysm./B[m].*((1-θ[s])./wages[m][:,1,s]).^ρ[s].*(((1-κ[s])/κ[s]).*rents[m]).^κ[s].*cl.^(ρ[s]-κ[s])
+            factorsm[1,:,s] = ysm./B[m] .*((1-θ[s])./wages[m][:,1,s]).^ρ[s].*(((1-κ[s])/κ[s]).*rents[m]).^κ[s].*cl.^(ρ[s]-κ[s])
             # Compute demand for S
-            factorsm[2,:,s] = ysm./B[m].*(θ[s]./wages[m][:,2,s]).^ρ[s].*(((1-κ[s])/κ[s]).*rents[m]).^κ[s].*cl.^(ρ[s]-κ[s])
+            factorsm[2,:,s] = ysm./B[m] .*(θ[s]./wages[m][:,2,s]).^ρ[s].*(((1-κ[s])/κ[s]).*rents[m]).^κ[s].*cl.^(ρ[s]-κ[s])
             # Compute demand for K
-            factorsm[3,:,s] = ysm./B[m].*(((1-κ[s])/κ[s]).*rents[m]).^(κ[s]-1).*cl.^(1-κ[s])
+            factorsm[3,:,s] = ysm./B[m] .*(((1-κ[s])/κ[s]).*rents[m]).^(κ[s]-1).*cl.^(1-κ[s])
             # store optimal prices
             pricesm[:,s] = ysm.^(1/ζ).*Hl[m].^(-1/ζ)
         end # s loop
@@ -252,15 +233,6 @@ function form_wages(para, JS, wages_old, firms, factor, n, γ, nloc)
     return wages_new
 end
 
-"""
-MATRICES
-firms: [city, location, sector]
-prices: [price]
-wages: w[m][ℓ,e,s]
-
-
-
-"""
 
 function fake_firm(para,nloc, JS)
     @unpack S, M = para
@@ -272,15 +244,13 @@ function fake_firm(para,nloc, JS)
     return fake_firms
 end
 
-space =[]
-push!(space, [0 0; 0 1])
-push!(space, [0 0; 0 1])
-nloc = [2, 2]
-#, wage_0, price_0, rents_0, firms_0
-
-
-function eq(para, ρ, ψ, θ, κ, JS, n, B, nloc, Rm, inner_max, outer_max, inner_tol, outer_tol, weights)
+function eq(para, space, ρ, ψ, θ, κ, JS, n, B, Rm, inner_max, outer_max, inner_tol, outer_tol, weights)
     @unpack M = para
+    nloc = zeros(M)
+    for m in 1:M
+        nloc[m] = size(space[m])[1]
+    end # m loop
+    nloc = Int.(nloc)
     # initialize equilibrium objects
     wages = wages_guess(para, nloc)
     prices = prices_guess(para, nloc)
@@ -308,7 +278,7 @@ function eq(para, ρ, ψ, θ, κ, JS, n, B, nloc, Rm, inner_max, outer_max, inne
     HH = []
     FF = []
     # begin price equilibrium while loop
-    while (iter < outer_max + 1) & (CONT == true)
+    while (iter < outer_max) & (CONT == true)
         iter += 1
         # initialize inner loop
         inner_it = 0
@@ -316,19 +286,19 @@ function eq(para, ρ, ψ, θ, κ, JS, n, B, nloc, Rm, inner_max, outer_max, inne
         hh_store = []
         firms_store = []
         # inner while loop to generate sorting equilibrium
-        while (inner_it < inner_max + 1) & (inner_CONT == true)
+        while (inner_it < inner_max) & (inner_CONT == true)
             inner_it += 1
             Pl = Pℓ(para, γ, firms, prices, nloc)
             # obtain household locations
             VH_new, pop, HX = household_sort(para, space, firms, prices, rents, wages, γ, n, nloc)
             # given hh sort, obtain firm sort
-            firms_new, factor, prices = firm_sort(para,space, VH_new, JS, Pl, pop, rents, wages, γ, ρ, θ, n, nloc)
+            firms_new, factor, prices = firm_sort(para,space, B, VH_new, JS, Pl, pop, rents, wages, γ, ρ, θ, n, nloc)
             # find max diff between cities
             diff_fer = zeros(M)
             diff_her = zeros(M)
             for m in 1:M
                 diff_fer[m] = maximum(abs.(firms_new[m] - firms[m]))
-                diff_her[m] = maximum(abs.(VH_new[m][1,:,:,:] - VH[m][1,:,:,:]))
+                diff_her[m] = maximum(abs.(pop[m][:,:,:] - pop[m][:,:,:]))
             end # m loop
             diff_h = maximum(diff_her)
             diff_f = maximum(diff_fer)
@@ -410,7 +380,7 @@ function eq(para, ρ, ψ, θ, κ, JS, n, B, nloc, Rm, inner_max, outer_max, inne
         # form wages and rents based on sorting
         wages_new = form_wages(para, JS, wages, firms_final, factor_final, n, γ, nloc)
         rents_new = form_rents(para, HX, factor_final, nloc, Rm, ψ)
-        # find largest distance between cities
+        # find largest difference between cities
         diff_wers = zeros(M)
         diff_rers = zeros(M)
         for m in 1:M
@@ -473,40 +443,53 @@ function eq(para, ρ, ψ, θ, κ, JS, n, B, nloc, Rm, inner_max, outer_max, inne
                 push!(rents_store, rents)
             end
         end # iteration check
+        if iter == outer_max
+            VH_final = VH_new
+            pop_final = pop
+            HX_final = HX
+            firms_final = firms_new
+            factor_final = factor
+            prices_final = prices
+            wages_final = wages_new
+            rents_final = rents_new
+        end
     end # price loop
     return VH_final, pop_final, HX_final, firms_final, factor_final, prices_final, wages_final, rents_final
 end
 
 ρ = [2 2 2 2]
-ψ = [0.5 0.5]
-θ = [0.5 0.5 0.5 0.5]
-κ = [0.3 0.3 0.3 0.3]
-JS = [15 15 15 15]
-n = 10 .*ones(2,4,2)
-B = [1 1]
+#ψ = [1.136 0.806]
+ψ = [0.05 0.05]
+θ = [0.5 0.5]
+κ = [0.3 0.3]
+JS = [15 15]
+n = 11 .*ones(2,2,2)
+#n[1,:,:] .= 8
 Rm = [1 1]
 
+B = []
+for m in 1:M
+    push!(B, ones(nloc[m]))
+end
+push!(B, [1 ; 1])
 
 weights = [0.4 0.3 0.2 0.1]
 inner_max = 200
 outer_max = 200
-inner_tol = 0.1
-outer_tol = 0.1
+inner_tol = 0.01
+outer_tol = 0.01
 
 space =[]
+sea_cent = CSV.read("sea_cent.csv")
+sea_cent = convert(Matrix, sea_cent)
+push!(space, sea_cent)
+det_cent = CSV.read("det_cent.csv")
+det_cent = convert(Matrix, det_cent)
+push!(space, det_cent)
+
 push!(space, [0 0; 0 1])
-push!(space, [0 0; 0 1])
-nloc = [2 2]
 
-function space_gen(para, nloc, space_max)
-    @unpack M = para
-    cities = []
-    for m in 1:M
-        push!(cities, rand(Uniform(0,space_max), 2, nloc[m]))
-    end # m loop
-    return cities
-end
+VH_eq, pop_eq, HX_eq, firms_eq, factor_eq, prices_eq, wages_eq, rents_eq = eq(para, space, ρ, ψ, θ, κ, JS, n, B, Rm, inner_max, outer_max, inner_tol, outer_tol, weights)
 
-space = space_gen(para, nloc, 10)
-
-VH_eq, pop_eq, HX_eq, firms_eq, factor_eq, prices_eq, wages_eq, rents_eq = eq(para, ρ, ψ, θ, κ, JS, n, B, nloc, Rm, inner_max, outer_max, inner_tol, outer_tol, weights)
+CSV.write("sea_sim.csv", convert(DataFrame, sum(pop_eq[1], dims = 3)[:,:,1]))
+CSV.write("det_sim.csv", convert(DataFrame, sum(pop_eq[2], dims = 3)[:,:,1]))
