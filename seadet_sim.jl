@@ -9,7 +9,7 @@ using DataFrames, DataFramesMeta, DelimitedFiles
 cd("/Users/bigfoot13770/Documents/UO ECON PROGRAM/ADRIFT/gentrification_sorting_model/gentrification_sorting_model_R")
 
 @with_kw struct parameters
-    αU::Float64 = 0.337   # Utility parameter
+    αU::Float64 = 0.321 #0.337   # Utility parameter
     αS::Float64 = 0.321
     ζ::Float64 = -2     # Elasticity of substitution between goods
     η::Float64 = 1.5    # Elast. of utility to work/commute
@@ -18,13 +18,15 @@ cd("/Users/bigfoot13770/Documents/UO ECON PROGRAM/ADRIFT/gentrification_sorting_
     IU::Int64 = 100     # Number of agents
     IS::Int64 = 100
     M::Int64 = 2        # Number of cities
-    S::Int64  = 2       # Number of sectors
+    S::Int64  = 4       # Number of sectors
     σh::Float64 = 1     # sd of εh
-    σw ::Float64= 1
-    σϵ::Float64 = 1     # sd of ϵ
+    σw::Float64 = 1.5
+    σϵ::Float64 = 1 # sd of ϵ
 end
 
 para = parameters()
+
+VH_eq, pop_eq, HX_eq, firms_eq, factor_eq, prices_eq, wages_eq, rents_eq = eq(para, space, ρ, ψ, θ, κ, JS, n, B, Rm, inner_max, outer_max, inner_tol, outer_tol, weights)
 
 
 function γ_gen(para, space, nloc, cost)
@@ -163,7 +165,7 @@ function firm_sort(para, space, B, VH, JS, Pl, pop, rents, wages, γ, ρ, θ, n,
         # Compute demand potential for each ℓ,e,s triple
         for s in 1:S
             for e in 1:2
-                Hlmes[:,e,s] = (1 - α[e]).*(τ.*(γ[m].+1)).^ζ * (pop[m][:,e,s].*VH[m][2,:,e,s]  .* Pl[m].^(-(1 + ζ)))
+                Hlmes[:,e,s] = (1 - α[e]).*(τ.*(γ[m].+1)).^ζ * (pop[m][:,e,s].*VH[m][2,:,e,s] .* Pl[m].^(-(1 + ζ)))
             end # e loop
         end # s loop
         # sum across columns of Hlmes to obtain H(ℓ)
@@ -173,7 +175,7 @@ function firm_sort(para, space, B, VH, JS, Pl, pop, rents, wages, γ, ρ, θ, n,
             cl = (θ[s]^ρ[s].*wages[m][:,2,s].^(1-ρ[s]) + (1-θ[s])^ρ[s].*wages[m][:,1,s].^(1-ρ[s])).^(1/(1 - ρ[s]))
             VFsm[:,s] = (1/σϵ) .* (log.(B[m]) .- (1/(1 + ζ)).*log.(Hl[m]) - κ[s].*rents[m] - (1-κ[s]).*log.(cl))
             # optimal output for firm in m of type s across ℓ
-            ysm = ((ζ/((1+ζ).*B[m]))' .*(rents[m]./κ[s]).^κ[s] .* (cl./(1-κ[s])).^(1-κ[s])).^ζ.*Hl[m]
+            ysm = ((ζ/(1+ζ))./B[m] .*(rents[m]./κ[s]).^κ[s] .* (cl./(1-κ[s])).^(1-κ[s])).^ζ.*Hl[m]
             # Compute demand for U
             factorsm[1,:,s] = ysm./B[m] .*((1-θ[s])./wages[m][:,1,s]).^ρ[s].*(((1-κ[s])/κ[s]).*rents[m]).^κ[s].*cl.^(ρ[s]-κ[s])
             # Compute demand for S
@@ -199,7 +201,7 @@ function firm_sort(para, space, B, VH, JS, Pl, pop, rents, wages, γ, ρ, θ, n,
         push!(firms,firmsm)
     end # m-s loop
 
-    return firms, factors, prices
+    return firms, factors, prices, VF
 end
 
 function form_rents(para, HX, factor, nloc, Rm, ψ)
@@ -268,6 +270,7 @@ function eq(para, space, ρ, ψ, θ, κ, JS, n, B, Rm, inner_max, outer_max, inn
     prices_final = []
     wages_final = []
     rents_final = []
+    VF_final =[]
     # initialize while loop
     iter = 0
     CONT = true
@@ -275,8 +278,6 @@ function eq(para, space, ρ, ψ, θ, κ, JS, n, B, Rm, inner_max, outer_max, inn
     rents_store = []
     diff_r = 0
     diff_w = 0
-    HH = []
-    FF = []
     # begin price equilibrium while loop
     while (iter < outer_max) & (CONT == true)
         iter += 1
@@ -290,15 +291,17 @@ function eq(para, space, ρ, ψ, θ, κ, JS, n, B, Rm, inner_max, outer_max, inn
             inner_it += 1
             Pl = Pℓ(para, γ, firms, prices, nloc)
             # obtain household locations
-            VH_new, pop, HX = household_sort(para, space, firms, prices, rents, wages, γ, n, nloc)
+            VH_new, pop_new, HX = household_sort(para, space, firms, prices, rents, wages, γ, n, nloc)
             # given hh sort, obtain firm sort
-            firms_new, factor, prices = firm_sort(para,space, B, VH_new, JS, Pl, pop, rents, wages, γ, ρ, θ, n, nloc)
+            firms_new, factor, prices, VF = firm_sort(para,space, B, VH_new, JS, Pl, pop, rents, wages, γ, ρ, θ, n, nloc)
             # find max diff between cities
             diff_fer = zeros(M)
             diff_her = zeros(M)
             for m in 1:M
+                firms_new[m] = max.(0.00000000000001, firms_new[m])
+                pop[m] = max.(0.00000000000001, pop[m])
                 diff_fer[m] = maximum(abs.(firms_new[m] - firms[m]))
-                diff_her[m] = maximum(abs.(pop[m][:,:,:] - pop[m][:,:,:]))
+                diff_her[m] = maximum(abs.(pop_new[m][:,:,:] - pop[m][:,:,:]))
             end # m loop
             diff_h = maximum(diff_her)
             diff_f = maximum(diff_fer)
@@ -312,13 +315,14 @@ function eq(para, space, ρ, ψ, θ, κ, JS, n, B, Rm, inner_max, outer_max, inn
                     VH_final = VH_new
                     pop_final = pop
                     HX_final = HX
+                    #VF_final = VF
                     inner_CONT = false
                     println("Sorting equilibrium obtained after $inner_it iterations")
                 else
                    println("$inner_it, HH difference = $diff_h, firms difference = $diff_f")
                     firms = firms_new
-                    VH = VH_new
-                    push!(hh_store, VH)
+                    pop = pop_new
+                    push!(hh_store, pop)
                     push!(firms_store, firms)
                 end
             elseif inner_it == 2
@@ -330,13 +334,14 @@ function eq(para, space, ρ, ψ, θ, κ, JS, n, B, Rm, inner_max, outer_max, inn
                     VH_final = VH_new
                     pop_final = pop
                     HX_final = HX
+                    #VF_final = VF
                     inner_CONT = false
                     println("Sorting equilibrium obtained after $inner_it iterations")
                 else
                     println("$inner_it, HH difference = $diff_h, firms difference = $diff_f")
                     firms = 0.5 .* (firms_new + firms)
-                    VH = 0.5 .* (VH_new + VH)
-                    push!(hh_store, VH)
+                    pop = 0.5 .* (pop_new + pop)
+                    push!(hh_store, pop)
                     push!(firms_store, firms)
                 end
             elseif inner_it == 3
@@ -348,13 +353,14 @@ function eq(para, space, ρ, ψ, θ, κ, JS, n, B, Rm, inner_max, outer_max, inn
                     VH_final = VH_new
                     pop_final = pop
                     HX_final = HX
+                   #VF_final = VF
                     inner_CONT = false
                     println("Sorting equilibrium obtained after $inner_it iterations")
                 else
                     println("$inner_it, HH difference = $diff_h, firms difference = $diff_f")
                     firms = (1/3) .* (firms_new + firms + firms_store[inner_it - 2])
-                    VH = (1/3) .* (VH_new + VH + hh_store[inner_it - 2])
-                    push!(hh_store, VH)
+                    pop = (1/3) .* (pop_new + pop + hh_store[inner_it - 2])
+                    push!(hh_store, pop)
                     push!(firms_store, firms)
                 end
             else
@@ -366,13 +372,14 @@ function eq(para, space, ρ, ψ, θ, κ, JS, n, B, Rm, inner_max, outer_max, inn
                     VH_final = VH_new
                     pop_final = pop
                     HX_final = HX
+                    #VF_final = VF
                     inner_CONT = false
                     println("Sorting equilibrium obtained after $inner_it iterations")
                 else
                     println("$inner_it, HH difference = $diff_h, firms difference = $diff_f")
                     firms = weights[1].*firms_new + weights[2].*firms + weights[3].*firms_store[inner_it - 2] + weights[4].* firms_store[inner_it - 3]
-                    VH = weights[1].*VH_new + weights[2].*VH + weights[3].*hh_store[inner_it - 2] + weights[4].*hh_store[inner_it - 3]
-                    push!(hh_store, VH)
+                    pop = weights[1].*pop_new + weights[2].*pop + weights[3].*hh_store[inner_it - 2] + weights[4].*hh_store[inner_it - 3]
+                    push!(hh_store, pop)
                     push!(firms_store, firms)
                 end
             end # iteration check
@@ -443,39 +450,30 @@ function eq(para, space, ρ, ψ, θ, κ, JS, n, B, Rm, inner_max, outer_max, inn
                 push!(rents_store, rents)
             end
         end # iteration check
-        if iter == outer_max
-            VH_final = VH_new
-            pop_final = pop
-            HX_final = HX
-            firms_final = firms_new
-            factor_final = factor
-            prices_final = prices
-            wages_final = wages_new
-            rents_final = rents_new
-        end
+        wages_final = wages_new
+        rents_final = rents_new
     end # price loop
-    return VH_final, pop_final, HX_final, firms_final, factor_final, prices_final, wages_final, rents_final
+    return VH_final, pop_final, HX_final, firms_final, factor_final, prices_final, wages_final, rents_final #VF_final
 end
 
 ρ = [2 2 2 2]
-#ψ = [1.136 0.806]
-ψ = [0.05 0.05]
-θ = [0.5 0.5]
-κ = [0.3 0.3]
-JS = [15 15]
-n = 11 .*ones(2,2,2)
+ψ = [1.136 0.806]
+#ψ = [1.1 1.1]
+θ = [0.5 0.3 0.25 0.7]
+κ = [0.3 0.3 0.3 0.3]
+JS = [15 15 15 15]
+n = 10 .*ones(2,4,2)
 #n[1,:,:] .= 8
-Rm = [1 1]
+Rm = [0.1 0.1]
 
 B = []
 for m in 1:M
     push!(B, ones(nloc[m]))
 end
-push!(B, [1 ; 1])
 
 weights = [0.4 0.3 0.2 0.1]
 inner_max = 200
-outer_max = 200
+outer_max = 1000
 inner_tol = 0.01
 outer_tol = 0.01
 
@@ -487,7 +485,6 @@ det_cent = CSV.read("det_cent.csv")
 det_cent = convert(Matrix, det_cent)
 push!(space, det_cent)
 
-push!(space, [0 0; 0 1])
 
 VH_eq, pop_eq, HX_eq, firms_eq, factor_eq, prices_eq, wages_eq, rents_eq = eq(para, space, ρ, ψ, θ, κ, JS, n, B, Rm, inner_max, outer_max, inner_tol, outer_tol, weights)
 

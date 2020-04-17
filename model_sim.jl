@@ -16,7 +16,7 @@ using Parameters
     M::Int64 = 2        # Number of cities
     S::Int64  = 4       # Number of sectors
     σh::Float64 = 0.5   # sd of εh
-    σw ::Float64= 0.5
+    σw::Float64 = 1.5
     σϵ::Float64 = 0.5   # sd of ϵ
 end
 
@@ -93,9 +93,6 @@ function Pℓ(para, γ, firms, prices, nloc)
     end # m loop
     return P_l
 end
-
-Pℓ(para,γ,firms,prices,nloc)
-
 
 function wages_guess(para,nloc)
     @unpack S, M = para
@@ -182,7 +179,7 @@ function firm_sort(para, space, VH, JS, Pl, pop, rents, wages, γ, ρ, θ, n, nl
         # Compute demand potential for each ℓ,e,s triple
         for s in 1:S
             for e in 1:2
-                Hlmes[:,e,s] = (1 - α[e]).*(τ.*γ[m]).^ζ * (pop[m][:,e,s].*VH[m][2,:,e,s]  .* Pl[m].^(-(1 + ζ)))
+                Hlmes[:,e,s] = (1 - α[e]).*(τ.*γ[m] .+ 1).^ζ * (pop[m][:,e,s].*VH[m][2,:,e,s]  .* Pl[m].^(-(1 + ζ)))
             end # e loop
         end # s loop
         # sum across columns of Hlmes to obtain H(ℓ)
@@ -190,7 +187,7 @@ function firm_sort(para, space, VH, JS, Pl, pop, rents, wages, γ, ρ, θ, n, nl
         for s in 1:S
             # assmeble unit cost function
             cl = (θ[s]^ρ[s].*wages[m][:,2,s].^(1-ρ[s]) + (1-θ[s])^ρ[s].*wages[m][:,1,s].^(1-ρ[s])).^(1/(1 - ρ[s]))
-            VFsm[:,s] = (1/σϵ) .* (-(1/(1 + ζ)).*log.(Hl[m]) - κ[s].*rents[m] - (1-κ[s]).*log.(cl))
+            VFsm[:,s] = (1/σϵ) .* (log.(B[m]) .- (1/(1 + ζ)).*log.(Hl[m]) - κ[s].*rents[m] - (1-κ[s]).*log.(cl))
             # optimal output for firm in m of type s across ℓ
             ysm = ((ζ/((1+ζ)*B[m])).*(rents[m]./κ[s]).^κ[s] .* (cl./(1-κ[s])).^(1-κ[s])).^ζ.*Hl[m]
             # Compute demand for U
@@ -328,7 +325,7 @@ function eq(para, ρ, ψ, θ, κ, JS, n, B, nloc, Rm, inner_max, outer_max, inne
             diff_her = zeros(M)
             for m in 1:M
                 diff_fer[m] = maximum(abs.(firms_new[m] - firms[m]))
-                diff_her[m] = maximum(abs.(VH_new[m][1,:,:,:] - VH[m][1,:,:,:]))
+                diff_her[m] = maximum(abs.(pop[m] - pop[m]))
             end # m loop
             diff_h = maximum(diff_her)
             diff_f = maximum(diff_fer)
@@ -502,7 +499,7 @@ function space_gen(para, nloc, space_max)
     @unpack M = para
     cities = []
     for m in 1:M
-        push!(cities, rand(Uniform(0,space_max), 2, nloc[m]))
+        push!(cities, rand(Uniform(0,space_max), nloc[m], 2))
     end # m loop
     return cities
 end
@@ -510,3 +507,6 @@ end
 space = space_gen(para, nloc, 10)
 
 VH_eq, pop_eq, HX_eq, firms_eq, factor_eq, prices_eq, wages_eq, rents_eq = eq(para, ρ, ψ, θ, κ, JS, n, B, nloc, Rm, inner_max, outer_max, inner_tol, outer_tol, weights)
+
+wages_new = form_wages(para, JS, wages, firms_new, factor, n, γ, nloc)
+rents_new = form_rents(para, HX, factor, nloc, Rm, ψ)
