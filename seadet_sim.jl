@@ -223,7 +223,7 @@ function firm_sort(para, space, B, VH, JS, ST, Pl, Pt, pop, rents, wages, γ, ρ
         push!(firms,firmsm)
         push!(factor,factorsm)
     end # m-s loop
-    return firms, factor, prices, Hl
+    return firms, factor, prices, Hl, VF
 end
 
 
@@ -296,7 +296,8 @@ function eq(para, space, I, γ, ρ, ψ, θ, κ, JS, ST, n, B, Rm, inner_max, out
     prices_final = []
     wages_final = []
     rents_final = []
-    VF_final =[]
+    Hl_final =[]
+    VF_final = []
     # initialize while loop
     iter = 0
     CONT = true
@@ -320,7 +321,7 @@ function eq(para, space, I, γ, ρ, ψ, θ, κ, JS, ST, n, B, Rm, inner_max, out
             # obtain household locations
             VH_new, pop_new, HX = household_sort(para, space, I, pop, firms, Pl, prices, rents, wages, γ, n, nloc)
             # given hh sort, obtain firm sort
-            firms_new, factor, prices, VF = firm_sort(para,space, B, VH_new, JS, ST, Pl, Pt, pop_new, rents, wages, γ, ρ, θ, κ, n, nloc)
+            firms_new, factor, prices, Hl, VF = firm_sort(para,space, B, VH_new, JS, ST, Pl, Pt, pop_new, rents, wages, γ, ρ, θ, κ, n, nloc)
             # find max diff between cities
             diff_fer = zeros(M)
             diff_her = zeros(M)
@@ -342,6 +343,7 @@ function eq(para, space, I, γ, ρ, ψ, θ, κ, JS, ST, n, B, Rm, inner_max, out
                     VH_final = VH_new
                     pop_final = pop
                     HX_final = HX
+                    Hl_final = Hl
                     VF_final = VF
                     inner_CONT = false
                     println("Sorting equilibrium obtained after $inner_it iterations")
@@ -361,6 +363,7 @@ function eq(para, space, I, γ, ρ, ψ, θ, κ, JS, ST, n, B, Rm, inner_max, out
                     VH_final = VH_new
                     pop_final = pop
                     HX_final = HX
+                    Hl_final = Hl
                     VF_final = VF
                     inner_CONT = false
                     println("Sorting equilibrium obtained after $inner_it iterations")
@@ -380,6 +383,7 @@ function eq(para, space, I, γ, ρ, ψ, θ, κ, JS, ST, n, B, Rm, inner_max, out
                     VH_final = VH_new
                     pop_final = pop
                     HX_final = HX
+                    Hl_final = Hl
                     VF_final = VF
                     inner_CONT = false
                     println("Sorting equilibrium obtained after $inner_it iterations")
@@ -399,6 +403,7 @@ function eq(para, space, I, γ, ρ, ψ, θ, κ, JS, ST, n, B, Rm, inner_max, out
                     VH_final = VH_new
                     pop_final = pop
                     HX_final = HX
+                    Hl_final = Hl
                     VF_final = VF
                     inner_CONT = false
                     println("Sorting equilibrium obtained after $inner_it iterations")
@@ -480,7 +485,7 @@ function eq(para, space, I, γ, ρ, ψ, θ, κ, JS, ST, n, B, Rm, inner_max, out
         wages_final = wages_new
         rents_final = rents_new
     end # price loop
-    return VH_final, pop_final, HX_final, firms_final, factor_final, prices_final, wages_final, rents_final, VF_final
+    return VH_final, pop_final, HX_final, firms_final, factor_final, prices_final, wages_final, rents_final, Hl_final, VF_final
 end
 
 ρ = [2 2 2 2]/1.4
@@ -497,20 +502,27 @@ JS17 = [26384 81267 54414 28839]/1000
 I90 = [3471 951]
 I18 = [3614 2165]
 
-# n[e,s,m]
-n90 = 8 .*ones(2,4,2)
-n18 = 8 .*ones(2,4,2)
-n18[2,:,:] .= 10
-#n[1,:,:] .= 8
 Rm = [0.01 0.01]
 ST = 2
 
 nloc = [186 241]
 B = []
+M = 2
 for m in 1:M
     push!(B, 10 .*ones(nloc[m]))
 end
 # B[1][1] = 10
+
+# read in distances to compute fake TFP's
+seadist = convert(Matrix, CSV.read("seadist.csv"))
+seadist = seadist./1000
+detdist = convert(Matrix, CSV.read("detdist.csv"))
+detdist = detdist./1000
+
+B = []
+push!(B,100 .* seadist.^-0.05 .+ 1)
+push!(B,100 .* detdist.^-0.05 .+ 1)
+
 
 n90 = 7.66.*ones(2,4,2)
 n90[2,1,:] .= 8.46
@@ -562,23 +574,23 @@ push!(γ, 2 .*γ_det)
     η::Float64 = 1.5    # Elast. of utility to work/commute
     νU::Float64 = 0
     νS::Float64 = 0
-    τ::Float64 = 0.1     # Travel cost parameter
+    τ::Float64 = 0.15     # Travel cost parameter
     T::Float64 = 20
     M::Int64 = 2        # Number of cities
     S::Int64 = 4       # Number of sectors
-    σhU::Float64 = 0.475     # sd of εh
-    σhS::Float64 = 0.112     # sd of εh
-    σwU::Float64 = 0.3
-    σwS::Float64 = 0.5
-    σϵ::Float64 = 0.4  # sd of ϵ
+    σhU::Float64 = 2   # sd of εh
+    σhS::Float64 = 0.5 # sd of εh
+    σwU::Float64 = 0.5
+    σwS::Float64 = 1
+    σϵ::Float64 = 1 # sd of ϵ
 end
 
 para = parameters()
 
 # Simulation for 1990
-VH_eq90, pop_eq90, HX_eq90, firms_eq90, factor_eq90, prices_eq90, wages_eq90, rents_eq90, VF90 = eq(para, space, I90, γ, ρ, ψ, θ90, κ90, JS94, ST, n90, B, Rm, inner_max, outer_max, inner_tol, outer_tol, weights)
+VH_eq90, pop_eq90, HX_eq90, firms_eq90, factor_eq90, prices_eq90, wages_eq90, rents_eq90, Hl90, VF18 = eq(para, space, I90, γ, ρ, ψ, θ90, κ90, JS94, ST, n90, B, Rm, inner_max, outer_max, inner_tol, outer_tol, weights)
 # Simulation for 2018
-VH_eq18, pop_eq18, HX_eq18, firms_eq18, factor_eq18, prices_eq18, wages_eq18, rents_eq18, VF18 = eq(para, space, I18, γ, ρ, ψ, θ18, κ18, JS17, ST, n18, B, Rm, inner_max, outer_max, inner_tol, outer_tol, weights)
+VH_eq18, pop_eq18, HX_eq18, firms_eq18, factor_eq18, prices_eq18, wages_eq18, rents_eq18, Hl18, VF18 = eq(para, space, I90, γ, ρ, ψ, θ18, κ18, JS94, ST, n18, B, Rm, inner_max, outer_max, inner_tol, outer_tol, weights)
 
 # write files for 90's sim
 CSV.write("sea_sim_pop90.csv", convert(DataFrame, sum(pop_eq90[1], dims = 3)[:,:,1]))
@@ -590,49 +602,3 @@ CSV.write("sea_sim_pop18.csv", convert(DataFrame, sum(pop_eq18[1], dims = 3)[:,:
 CSV.write("det_sim_pop18.csv", convert(DataFrame, sum(pop_eq18[2], dims = 3)[:,:,1]))
 CSV.write("sea_sim_firms18.csv", convert(DataFrame, firms_eq18[1]))
 CSV.write("det_sim_firms18.csv", convert(DataFrame, firms_eq18[2]))
-
-
-@unpack M = para
-
-space = []
-push!(space, [0 0; 0 1; 0 2])
-nloc = [3]
-γ = γ_gen(para, space, nloc, 1)
-
-n = 10 .* ones(2,4,1)
-wages_old = wages
-JS = [10 10 10 10]
-I = [200 100]
-
-nloc = zeros(M)
-pop0 = []
-for m in 1:M
-    nloc[m] = size(space[m])[1]
-    push!(pop0, ones(Int(nloc[m]),2,4))
-end # m loop
-nloc = Int.(nloc)
-θ = [0.3 0.7 0.3 0.7]
-κ = [0.3 0.3 0.3 0.3]
-B = []
-push!(B,ones(3))
-# initialize equilibrium objects
-wages_old = wages_guess(para, nloc)
-prices = prices_guess(para, nloc)
-rents = rents_guess(para, nloc)
-firms = fake_firm(para, nloc, JS)
-#γ = γ_gen(para,space,nloc,1)
-Pt = P_t(para, prices, firms, ST)
-Pl = Pℓ(para, γ, firms, prices, ST, nloc)
-VH, pop, HX = household_sort(para, space, I, pop0, firms, Pl, prices, rents, wages, γ, n, nloc)
-VH_new, pop_new, HX = household_sort(para, space, I, pop, firms, Pl, prices, rents, wages, γ, n, nloc)
-# given hh sort, obtain firm sort
-firms_new, factor, prices, VF = firm_sort(para,space, B, VH_new, JS, ST, Pl, Pt, pop_new, rents, wages, γ, ρ, θ, κ, n, nloc)
-
-
-VW = (1/σw[e]) .* (
-    log(n[e,s,m]) .+ log.(wages_old[m][:,e,s]')
-    .+ η.*log.(T .- n[e,s,m] .- γ[m])
-    )
-ugly_int = sum(exp.((1/σw[e]) .*(log(n[e,s,m]).+ η.*log.(T .- n[e,s,m] .- γ[m]))) .* ((ones(1,nloc[m])*(exp.(VW))').^(-1)), dims = 2)
-
-firms_new[m][:,s] .* (factor[m][e,:,s] .* n[e,s,m]^(-1) .* ugly_int.^(-1)).^σw[e]
