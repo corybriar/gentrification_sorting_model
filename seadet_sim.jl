@@ -48,12 +48,12 @@ function prices_guess(para, nloc)
 end
 
 function Pℓ(para, γ, firms, prices, ST, nloc)
-    @unpack τ, M, S, ζ = para
+    @unpack τ1, τ2, M, S, ζ = para
     P_l = []
     for m in 1:M
         P_lm =[]
         for s in (ST+1):S
-            Plms = (1 .+ τ.*γ[m]).^(1+ζ) * (firms[m][:,s] .* (prices[m][:,s]).^(1+ζ))
+            Plms = (1 .+ τ1.*γ[m].^τ2).^(1+ζ) * (firms[m][:,s] .* (prices[m][:,s]).^(1+ζ))
             push!(P_lm, Plms)
         end # s loop
         push!(P_l, sum(P_lm).^(1/(1+ζ)))
@@ -85,7 +85,7 @@ function wages_guess(para,nloc)
 end
 
 function household_sort(para, space, I, pop_old, firms, Pl, prices, rents, wages, γ, n, nloc)
-    @unpack αU, αS, β, ζ, η, νU, νS, τ, T, M, S, σwU, σwS, σhU, σhS = para
+    @unpack αU, αS, β, ζ, η, νU, νS, T, M, S, σwU, σwS, σhU, σhS = para
     E = [1, 2]
     α = [αU, αS]
     σw = [σwU, σwS]
@@ -150,7 +150,7 @@ function household_sort(para, space, I, pop_old, firms, Pl, prices, rents, wages
 end
 
 function firm_sort(para, space, B, VH, JS, ST, Pl, Pt, pop, rents, wages, γ, ρ, θ, κ, n, nloc)
-    @unpack αU, αS, β, ζ, η, τ, M, S, σϵ = para
+    @unpack αU, αS, β, ζ, η, τ1, τ2, M, S, σϵ = para
     α = [αU, αS]
     VF =[]
     Hl = []
@@ -181,7 +181,7 @@ function firm_sort(para, space, B, VH, JS, ST, Pl, Pt, pop, rents, wages, γ, ρ
                 end # e loop
             else
             for e in 1:2, s2 in 1:S
-                Hlmes[:,e,s2,s] = (1-β).*(1 - α[e]).*(1 .+ τ.*γ[m]).^ζ * (pop[m][:,e,s2].*VH[m][2,:,e,s2] .* Pl[m].^(-(1 + ζ)))
+                Hlmes[:,e,s2,s] = (1-β).*(1 - α[e]).*(1 .+ τ1.*γ[m].^τ2).^ζ * (pop[m][:,e,s2].*VH[m][2,:,e,s2] .* Pl[m].^(-(1 + ζ)))
             end # e loop
             end
         end # s loop
@@ -190,7 +190,7 @@ function firm_sort(para, space, B, VH, JS, ST, Pl, Pt, pop, rents, wages, γ, ρ
         for s in 1:S
             # assmeble unit cost function
             cl = (θ[s]^ρ[s].*wages[m][:,2,s].^(1-ρ[s]) + (1-θ[s])^ρ[s].*wages[m][:,1,s].^(1-ρ[s])).^(1/(1 - ρ[s]))
-            VFsm[:,s] = (1/σϵ) .* (log.(B[m]) .- (1/(1 + ζ)).*log.(Hl[m][:,s]) - κ[s].*rents[m] - (1-κ[s]).*log.(cl))
+            VFsm[:,s] = (1/σϵ) .* (log.(B[m]) .- (1/(1 + ζ)).*log.(Hl[m][:,s]) - κ[s].*log.(rents[m]) - (1-κ[s]).*log.(cl))
             # optimal output for firm in m of type s across ℓ
             ysm = ((ζ/(1+ζ))./B[m] .*(rents[m]./κ[s]).^κ[s] .* (cl./(1-κ[s])).^(1-κ[s])).^ζ.*Hl[m][:,s]
             # Compute demand for U
@@ -239,9 +239,10 @@ function form_rents(para, HX, factor, nloc, Rm, ψ)
 end
 
 
-function form_wages(para, JS, wages_old, firms, factor, n, γ, nloc)
+function form_wages(para, JS, WP, wages_old, firms, factor, n, γ, nloc)
     @unpack T, ζ, η, M, S, σwU, σwS = para
     wages_new = []
+    premium = [ones(1,4);WP]
     σw = [σwU, σwS]
     for m in 1:M
         wagesS = zeros(nloc[m],2,S)
@@ -251,7 +252,7 @@ function form_wages(para, JS, wages_old, firms, factor, n, γ, nloc)
                 .+ η.*log.(T .- n[e,s,m] .- γ[m])
                 )
             ugly_int = sum(exp.((1/σw[e]) .*(log(n[e,s,m]).+ η.*log.(T .- n[e,s,m] .- γ[m]))) .* ((ones(1,nloc[m])*(exp.(VW))').^(-1)), dims = 2)
-            wagesS[:,e,s] = firms[m][:,s] .* (factor[m][e,:,s] .* n[e,s,m]^(-1) .* ugly_int.^(-1)).^σw[e]
+            wagesS[:,e,s] = premium[e,s] .* firms[m][:,s] .* (factor[m][e,:,s] .* n[e,s,m]^(-1) .* ugly_int.^(-1)).^σw[e]
         end # s-e loop
         push!(wages_new, wagesS)
     end # m loop
@@ -269,7 +270,7 @@ function fake_firm(para,nloc, JS)
     return fake_firms
 end
 
-function eq(para, space, I, γ, ρ, ψ, θ, κ, JS, ST, n, B, Rm, inner_max, outer_max, inner_tol, outer_tol, weights)
+function eq(para, space, I, γ, ρ, ψ, θ, κ, JS, WP, ST, n, B, Rm, inner_max, outer_max, inner_tol, outer_tol, weights)
     @unpack M = para
     nloc = zeros(M)
     pop0 = []
@@ -417,7 +418,7 @@ function eq(para, space, I, γ, ρ, ψ, θ, κ, JS, ST, n, B, Rm, inner_max, out
             end # iteration check
         end # sorting loop
         # form wages and rents based on sorting
-        wages_new = form_wages(para, JS, wages, firms_final, factor_final, n, γ, nloc)
+        wages_new = form_wages(para, JS, WP, wages, firms_final, factor_final, n, γ, nloc)
         rents_new = form_rents(para, HX, factor_final, nloc, Rm, ψ)
         # find largest difference between cities
         diff_wers = zeros(M)
@@ -488,19 +489,20 @@ function eq(para, space, I, γ, ρ, ψ, θ, κ, JS, ST, n, B, Rm, inner_max, out
     return VH_final, pop_final, HX_final, firms_final, factor_final, prices_final, wages_final, rents_final, Hl_final, VF_final
 end
 
-ρ = [2 2 2 2]/1.4
+ρ = [1 1 1 1]/0.7
 ψ = [1.136 0.806]
 
 #(U,t) (S,t) | (U,nt) (S,nt)
-θ90 = [0.233 0.398 0.278 0.538]
-θ18 = [0.304 0.489 0.383 0.579]
+θ90 = [0.3421469 0.5473166 0.3573160 0.6263972]
+θ18 = [0.4523577 0.7347360 0.4992672 0.7017599]
+
 κ90 = 1 .- [0.579 0.550 0.632 0.813]
 κ18 = 1 .- [0.491 0.557 0.635 0.805]
-JS94 = [18321 84865 23316 20083]/1000
-JS17 = [26384 81267 54414 28839]/1000
+JS94 = [18321 23316 84865 20083]/1000
+JS17 = [26384 54414 81267 28839]/1000
 
-I90 = [3471 951]
-I18 = [3614 2165]
+I90 = [2170221+3881489 502307+461989]/1000
+I18 = [2781048+3578705 1135971+950505]/1000
 
 Rm = [0.01 0.01]
 ST = 2
@@ -509,7 +511,7 @@ nloc = [186 241]
 B = []
 M = 2
 for m in 1:M
-    push!(B, 10 .*ones(nloc[m]))
+    push!(B, 1 .*ones(nloc[m]))
 end
 # B[1][1] = 10
 
@@ -520,8 +522,8 @@ detdist = convert(Matrix, CSV.read("detdist.csv"))
 detdist = detdist./1000
 
 B = []
-push!(B,100 .* seadist.^-0.05 .+ 1)
-push!(B,100 .* detdist.^-0.05 .+ 1)
+push!(B,100 .* seadist.^-0.001 .+ 1)
+push!(B,100 .* detdist.^-0.001 .+ 1)
 
 
 n90 = 7.66.*ones(2,4,2)
@@ -542,8 +544,15 @@ n18[2,3,:] .= 8.17
 n18[1,4,:] .= 7.07
 n18[2,4,:] .= 8.19
 
+#n18 = 8 .* ones(2,4,2)
+#n18[1,:,:] .= 10
+#WP90 = [2.081701 2.054154 2.458855 2.607446]
+#WP18 = [1.916106 1.77704 2.381416 2.099396]
+WP90 = [1 1 1 1]
+WP18 = [1 1 1 1]
+
 weights = [0.4 0.3 0.2 0.1]
-inner_max = 400
+inner_max = 600
 outer_max = 400
 inner_tol = 0.01
 outer_tol = 0.01
@@ -571,34 +580,69 @@ push!(γ, 2 .*γ_det)
     αS::Float64 = 0.321
     β::Float64 = 0.4
     ζ::Float64 = -2.5    # Elasticity of substitution between goods
-    η::Float64 = 1.5    # Elast. of utility to work/commute
-    νU::Float64 = 0
-    νS::Float64 = 0
-    τ::Float64 = 0.15     # Travel cost parameter
+    η::Float64 = 2   # Elast. of utility to work/commute
+    νU::Float64 = 0.0
+    νS::Float64 = 0.0
+    τ1::Float64 = 0.15
+    τ2::Float64 = 1     # Travel cost parameter
     T::Float64 = 20
     M::Int64 = 2        # Number of cities
     S::Int64 = 4       # Number of sectors
-    σhU::Float64 = 2   # sd of εh
-    σhS::Float64 = 0.5 # sd of εh
-    σwU::Float64 = 0.5
-    σwS::Float64 = 1
-    σϵ::Float64 = 1 # sd of ϵ
+    σhU::Float64 = 4 # sd of εh
+    σhS::Float64 = 1.7 # sd of εh
+    σwU::Float64 = 0.3
+    σwS::Float64 = 0.7
+    σϵ::Float64 = 0.35  # sd of ϵ
 end
 
 para = parameters()
 
 # Simulation for 1990
-VH_eq90, pop_eq90, HX_eq90, firms_eq90, factor_eq90, prices_eq90, wages_eq90, rents_eq90, Hl90, VF18 = eq(para, space, I90, γ, ρ, ψ, θ90, κ90, JS94, ST, n90, B, Rm, inner_max, outer_max, inner_tol, outer_tol, weights)
+VH_eq90, pop_eq90, HX_eq90, firms_eq90, factor_eq90, prices_eq90, wages_eq90, rents_eq90, Hl90, VF90 = eq(para, space, I90, γ, ρ, ψ, θ90, κ90, JS94, WP90, ST, n90, B, Rm, inner_max, outer_max, inner_tol, outer_tol, weights)
 # Simulation for 2018
-VH_eq18, pop_eq18, HX_eq18, firms_eq18, factor_eq18, prices_eq18, wages_eq18, rents_eq18, Hl18, VF18 = eq(para, space, I90, γ, ρ, ψ, θ18, κ18, JS94, ST, n18, B, Rm, inner_max, outer_max, inner_tol, outer_tol, weights)
+VH_eq18, pop_eq18, HX_eq18, firms_eq18, factor_eq18, prices_eq18, wages_eq18, rents_eq18, Hl18, VF18 = eq(para, space, I18, γ, ρ, ψ, θ18, κ18, JS17, WP18, ST, n18, B, Rm, inner_max, outer_max, inner_tol, outer_tol, weights)
 
 # write files for 90's sim
-CSV.write("sea_sim_pop90.csv", convert(DataFrame, sum(pop_eq90[1], dims = 3)[:,:,1]))
-CSV.write("det_sim_pop90.csv", convert(DataFrame, sum(pop_eq90[2], dims = 3)[:,:,1]))
-CSV.write("sea_sim_firms90.csv", convert(DataFrame, firms_eq90[1]))
-CSV.write("det_sim_firms90.csv", convert(DataFrame, firms_eq90[2]))
+CSV.write("sea_sim_pop90.csv", convert(DataFrame, sum(1000 .*pop_eq90[1], dims = 3)[:,:,1]))
+CSV.write("det_sim_pop90.csv", convert(DataFrame, sum(1000 .*pop_eq90[2], dims = 3)[:,:,1]))
+CSV.write("sea_sim_firms90.csv", convert(DataFrame, 1000 .*firms_eq90[1]))
+CSV.write("det_sim_firms90.csv", convert(DataFrame, 1000 .*firms_eq90[2]))
 
-CSV.write("sea_sim_pop18.csv", convert(DataFrame, sum(pop_eq18[1], dims = 3)[:,:,1]))
-CSV.write("det_sim_pop18.csv", convert(DataFrame, sum(pop_eq18[2], dims = 3)[:,:,1]))
-CSV.write("sea_sim_firms18.csv", convert(DataFrame, firms_eq18[1]))
-CSV.write("det_sim_firms18.csv", convert(DataFrame, firms_eq18[2]))
+CSV.write("sea_sim_pop18.csv", convert(DataFrame, sum(1000 .*pop_eq18[1], dims = 3)[:,:,1]))
+CSV.write("det_sim_pop18.csv", convert(DataFrame, sum(1000 .*pop_eq18[2], dims = 3)[:,:,1]))
+CSV.write("sea_sim_firms18.csv", convert(DataFrame, 1000 .*firms_eq18[1]))
+CSV.write("det_sim_firms18.csv", convert(DataFrame, 1000 .*firms_eq18[2]))
+
+CSV.write("sea_sim_Hl90.csv", convert(DataFrame, Hl90[1]))
+CSV.write("det_sim_Hl90.csv", convert(DataFrame, Hl90[2]))
+CSV.write("sea_sim_Hl18.csv", convert(DataFrame, Hl18[1]))
+CSV.write("det_sim_Hl18.csv", convert(DataFrame, Hl18[2]))
+
+
+# write files for 90's sim
+CSV.write("sea_sim_pop90sig5.csv", convert(DataFrame, sum(1000 .*pop_eq90[1], dims = 3)[:,:,1]))
+CSV.write("det_sim_pop90sig5.csv", convert(DataFrame, sum(1000 .*pop_eq90[2], dims = 3)[:,:,1]))
+CSV.write("sea_sim_pop18sig5.csv", convert(DataFrame, sum(1000 .*pop_eq18[1], dims = 3)[:,:,1]))
+CSV.write("det_sim_pop18sig5.csv", convert(DataFrame, sum(1000 .*pop_eq18[2], dims = 3)[:,:,1]))
+
+
+CSV.write("sea_sim_pop90para.csv", convert(DataFrame, sum(1000 .*pop_eq90[1], dims = 3)[:,:,1]))
+CSV.write("det_sim_pop90para.csv", convert(DataFrame, sum(1000 .*pop_eq90[2], dims = 3)[:,:,1]))
+CSV.write("sea_sim_pop18para.csv", convert(DataFrame, sum(1000 .*pop_eq18[1], dims = 3)[:,:,1]))
+CSV.write("det_sim_pop18para.csv", convert(DataFrame, sum(1000 .*pop_eq18[2], dims = 3)[:,:,1]))
+
+CSV.write("sea_sim_pop90pop.csv", convert(DataFrame, sum(1000 .*pop_eq90[1], dims = 3)[:,:,1]))
+CSV.write("det_sim_pop90pop.csv", convert(DataFrame, sum(1000 .*pop_eq90[2], dims = 3)[:,:,1]))
+CSV.write("sea_sim_pop18pop.csv", convert(DataFrame, sum(1000 .*pop_eq18[1], dims = 3)[:,:,1]))
+CSV.write("det_sim_pop18pop.csv", convert(DataFrame, sum(1000 .*pop_eq18[2], dims = 3)[:,:,1]))
+
+CSV.write("sea_sim_pop90hourspara.csv", convert(DataFrame, sum(1000 .*pop_eq90[1], dims = 3)[:,:,1]))
+CSV.write("det_sim_pop90hourspara.csv", convert(DataFrame, sum(1000 .*pop_eq90[2], dims = 3)[:,:,1]))
+CSV.write("sea_sim_pop18hourspara.csv", convert(DataFrame, sum(1000 .*pop_eq18[1], dims = 3)[:,:,1]))
+CSV.write("det_sim_pop18hourspara.csv", convert(DataFrame, sum(1000 .*pop_eq18[2], dims = 3)[:,:,1]))
+
+
+CSV.write("sea_sim_pop90nu.csv", convert(DataFrame, sum(1000 .*pop_eq90[1], dims = 3)[:,:,1]))
+CSV.write("det_sim_pop90nu.csv", convert(DataFrame, sum(1000 .*pop_eq90[2], dims = 3)[:,:,1]))
+CSV.write("sea_sim_pop18nu.csv", convert(DataFrame, sum(1000 .*pop_eq18[1], dims = 3)[:,:,1]))
+CSV.write("det_sim_pop18nu.csv", convert(DataFrame, sum(1000 .*pop_eq18[2], dims = 3)[:,:,1]))
